@@ -1,0 +1,16 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Corpus and binary data — too large for version control
+corpus/
+*.bin
+*.pt
+*.onnx

@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mica — Token Trace</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    main { max-width: 960px; }
+
+    .token-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      padding: 0.6rem;
+      background: var(--bg-raise);
+      border: 1px solid var(--border);
+      min-height: 2.2rem;
+    }
+
+    .token-chip {
+      font-size: 0.88rem;
+      padding: 3px 9px;
+      border: 1px solid var(--amber-dim);
+      cursor: pointer;
+      color: var(--text);
+      white-space: pre;
+      user-select: none;
+      transition: border-color 0.1s, color 0.1s;
+    }
+    .token-chip:hover  { border-color: var(--amber); color: var(--amber); }
+    .token-chip.active { border-color: var(--amber); color: var(--amber); background: rgba(200,146,42,0.12); }
+
+    .layer-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+    .layer-tab {
+      font-family: var(--font);
+      font-size: 0.82rem;
+      padding: 4px 13px;
+      border: 1px solid var(--amber-dim);
+      cursor: pointer;
+      color: var(--text);
+      background: transparent;
+      letter-spacing: 0.05em;
+      transition: border-color 0.1s, color 0.1s, background 0.1s;
+    }
+    .layer-tab:hover  { border-color: var(--amber); color: var(--amber); }
+    .layer-tab.active { border-color: var(--amber); color: var(--bg); background: var(--amber); }
+
+    .head-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.4rem;
+      align-items: flex-start;
+    }
+
+    .head-wrap { display: flex; flex-direction: column; gap: 6px; }
+
+    .head-label {
+      font-size: 0.78rem;
+      color: var(--text);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    canvas { display: block; image-rendering: pixelated; cursor: crosshair; }
+
+    .section-label {
+      font-size: 0.8rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--amber);
+      margin-bottom: 0.6rem;
+    }
+    .muted { color: var(--muted); text-transform: none; letter-spacing: 0; }
+
+    .viz-area { display: flex; flex-direction: column; gap: 2rem; }
+
+    .topk-list {
+      display: grid;
+      grid-template-columns: auto auto;
+      column-gap: 1.2rem;
+      row-gap: 0.2rem;
+      font-size: 0.9rem;
+    }
+    .topk-token { color: var(--text); white-space: pre; }
+    .topk-prob  { color: var(--muted); text-align: right; }
+
+    #residual-labels {
+      display: grid;
+      font-size: 0.68rem;
+      color: var(--text);
+      margin-top: 4px;
+      letter-spacing: 0;
+    }
+    #residual-labels span { text-align: center; overflow: hidden; }
+
+    /* Logit lens */
+    .ll-wrap  { overflow-x: auto; }
+    .ll-row   { display: flex; gap: 2px; margin-bottom: 2px; align-items: center; }
+    .ll-hdr   { font-size: .75rem; color: var(--text); width: 64px; text-align: center;
+                flex-shrink: 0; letter-spacing: .05em; }
+    .ll-corner { width: 68px; flex-shrink: 0; }
+    .ll-rowlbl { width: 68px; flex-shrink: 0; font-size: .8rem; color: var(--text);
+                 text-align: right; padding-right: 8px; white-space: pre; overflow: hidden; }
+    .ll-cell  { width: 64px; height: 28px; flex-shrink: 0; font-size: .74rem;
+                display: flex; align-items: center; justify-content: center;
+                overflow: hidden; white-space: nowrap; cursor: default; }
+    #attn-tip {
+      display: none;
+      position: fixed;
+      pointer-events: none;
+      background: var(--bg-raise);
+      border: 1px solid var(--amber-dim);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 0.8rem;
+      padding: 4px 10px;
+      white-space: nowrap;
+      z-index: 100;
+    }
+    #attn-tip .tip-val { color: var(--muted); margin-left: 0.6em; }
+  </style>
+</head>
+<body>
+  <div id="attn-tip"></div>
+  <header>
+    <h1>Mica</h1>
+    <p class="subtitle">token trace</p>
+  </header>
+
+  <main>
+    <div>
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt" rows="2" spellcheck="false">The fat man in the doorway</textarea>
+    </div>
+
+    <div class="controls">
+      <div class="buttons">
+        <button id="trace-btn" disabled>Trace</button>
+      </div>
+      <span id="status">Loading model…</span>
+    </div>
+
+    <div>
+      <div class="section-label">
+        Tokens
+        <span style="font-size:0.62rem;letter-spacing:0;text-transform:none">(click to select)</span>
+      </div>
+      <div class="token-strip" id="tokens"></div>
+    </div>
+
+    <div id="viz" style="display:none" class="viz-area">
+
+      <div>
+        <div class="section-label" style="margin-bottom:0.7rem">
+          Attention weights — layer
+        </div>
+        <div class="layer-tabs" id="layer-tabs" style="margin-bottom:1rem"></div>
+        <div class="head-grid" id="head-grid"></div>
+      </div>
+
+      <div id="topk"></div>
+
+      <div>
+        <div class="section-label">
+          Logit lens — top prediction per position × layer
+          <span class="muted" style="font-size:.62rem">(rows = token positions, cols = L0…LN → fin)</span>
+        </div>
+        <div id="logit-lens"></div>
+      </div>
+
+      <div>
+        <div class="section-label">
+          Attention entropy — focus vs diffusion per head × layer
+          <span class="muted" style="font-size:.62rem">(bright = diffuse / gathering, dim = focused / lookup)</span>
+        </div>
+        <div id="entropy-labels" style="margin-bottom:.4rem"></div>
+        <div id="entropy-grid"></div>
+      </div>
+
+      <div>
+        <div class="section-label">Residual stream — L2 norm (rows = tokens, cols = embedding → L0…LN → final)</div>
+        <canvas id="residual-canvas"></canvas>
+        <div id="residual-labels"></div>
+      </div>
+
+    </div>
+  </main>
+
+  <script type="module" src="trace.js"></script>
+</body>
+</html>

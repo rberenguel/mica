@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mica</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Mica</h1>
+    <p class="subtitle">De mica en mica s'omple la pica</p>
+  </header>
+
+  <main>
+    <div>
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt" rows="4" spellcheck="false">The rain came down hard on the empty street.</textarea>
+    </div>
+
+    <div>
+      <label for="output">Output</label>
+      <pre id="output"></pre>
+    </div>
+
+    <div class="controls">
+      <div class="slider-group">
+        <span>Temp</span>
+        <input id="temperature" type="range" min="0.5" max="1.4" step="0.05" value="0.8" />
+        <span id="temperature-display">0.80</span>
+      </div>
+
+      <div class="slider-group">
+        <label for="max-tokens" style="margin:0">Tokens</label>
+        <input id="max-tokens" type="number" min="10" max="500" value="200" />
+      </div>
+
+      <div class="buttons">
+        <button id="stop-btn" disabled>Stop</button>
+        <button id="generate-btn" disabled>Generate</button>
+      </div>
+    </div>
+
+    <span id="status">Loading model…</span>
+  </main>
+
+  <script type="module" src="mica.js"></script>
+</body>
+</html>

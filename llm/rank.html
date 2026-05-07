@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mica — DPO Rank Mode</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    h1 { font-weight: 400; font-size: 1.5rem; margin-bottom: 0.5rem; color: #f0f0f0; }
+    .subtitle { color: #888; font-size: 0.9rem; margin-bottom: 2rem; }
+    #upload-area {
+      border: 2px dashed #444;
+      border-radius: 8px;
+      padding: 2rem;
+      text-align: center;
+      margin-bottom: 2rem;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    #upload-area:hover { border-color: #666; }
+    #upload-area.has-file { border-color: #4a9; background: #1a2a20; }
+    input[type="file"] { display: none; }
+    #prompt-display {
+      background: #252525;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.5rem;
+      font-size: 1.1rem;
+      color: #ccc;
+      border-left: 3px solid #6af;
+    }
+    #prompt-display strong { color: #fff; }
+    .completion {
+      background: #222;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 0.75rem;
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+      transition: border-color 0.15s;
+    }
+    .completion:hover { border-color: #444; }
+    .completion.chosen { border-color: #4a9; background: #1a2a20; }
+    .completion.rejected { border-color: #a44; background: #2a1a1a; }
+    .rank-badge {
+      width: 1.8rem;
+      height: 1.8rem;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.85rem;
+      flex-shrink: 0;
+      margin-right: 0.5rem;
+    }
+    .completion-text {
+      flex: 1;
+      font-size: 0.95rem;
+      color: #ddd;
+      white-space: pre-wrap;
+    }
+    .completion-meta {
+      font-size: 0.75rem;
+      color: #666;
+      margin-top: 0.25rem;
+    }
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .actions button {
+      background: #333;
+      border: 1px solid #444;
+      color: #ccc;
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 1.1rem;
+      transition: all 0.15s;
+    }
+    .actions button:hover { background: #444; }
+    .actions button.chosen-btn.active { background: #2a5a3a; border-color: #4a9; color: #4a9; }
+    .actions button.rejected-btn.active { background: #5a2a2a; border-color: #a44; color: #a44; }
+    #controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 2rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #333;
+    }
+    #progress { color: #888; font-size: 0.9rem; }
+    #progress span { color: #fff; }
+    #export-btn, #skip-btn {
+      background: #3a3a3a;
+      border: 1px solid #555;
+      color: #ccc;
+      padding: 0.6rem 1.2rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    #export-btn:hover, #skip-btn:hover { background: #444; }
+    #export-btn { background: #2a4a3a; border-color: #4a9; color: #8fa; }
+    #export-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    #counter { color: #6af; font-weight: 500; }
+    .completion { cursor: pointer; }
+    .completion:hover { background: #2a2a2a; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>🎭 Mica DPO — Rank Completions</h1>
+  <p class="subtitle">
+    Load the JSON from <code>dpo_generate.py</code>, then for each prompt pick
+    the <strong>best</strong> (★) and <strong>worst</strong> (✗) completion.
+  </p>
+
+  <div id="upload-area" onclick="document.getElementById('file-input').click()">
+    <p>📁 Click to load <code>dpo_candidates.json</code></p>
+    <input type="file" id="file-input" accept=".json">
+  </div>
+
+  <div id="ranking-ui" class="hidden">
+    <div id="prompt-display"></div>
+    <div id="completions-list"></div>
+    <div id="controls">
+      <div id="progress">Prompt <span id="prompt-idx">0</span> / <span id="prompt-total">0</span> — Pairs: <span id="counter">0</span></div>
+      <div>
+        <button id="skip-btn">Skip prompt →</button>
+        <button id="export-btn" disabled>Export pairs</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="rank.js"></script>
+</body>
+</html>
