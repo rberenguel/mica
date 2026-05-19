@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mica Training Progress</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      padding: 2rem;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    h1 { font-weight: 400; font-size: 1.4rem; margin-bottom: 0.3rem; }
+    .subtitle { color: #888; font-size: 0.85rem; margin-bottom: 1.5rem; }
+    #status { color: #666; font-size: 0.85rem; margin-bottom: 1rem; }
+    .chart-wrap {
+      background: #222;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .legend {
+      display: flex;
+      gap: 1.5rem;
+      font-size: 0.85rem;
+      margin-bottom: 1rem;
+    }
+    .legend span { display: flex; align-items: center; gap: 0.4rem; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  </style>
+</head>
+<body>
+  <h1>📉 Mica Training Progress</h1>
+  <p class="subtitle">Live loss curves from <code>train_log.csv</code></p>
+  <p id="status">Loading <code id="log-name">train_log.csv</code>…</p>
+
+  <div class="legend">
+    <span><span class="dot" style="background:#6af"></span> Train loss</span>
+    <span><span class="dot" style="background:#f66"></span> Val loss</span>
+    <span><span class="dot" style="background:#4a9"></span> Phase boundary</span>
+  </div>
+
+  <div class="chart-wrap">
+    <canvas id="lossChart" height="400"></canvas>
+  </div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const logFile   = urlParams.get('log') || 'train_log.csv';
+    const CSV_URL   = '/' + logFile;  // assumes server root is project root
+    const REFRESH_MS = 30000;
+
+    let chart;
+
+    async function loadData() {
+      try {
+        const res = await fetch(CSV_URL + '?t=' + Date.now());
+    if (res.status === 404) {
+      document.getElementById('status').textContent =
+        `CSV not found: ${logFile} — is training running?`;
+      return [];
+    }
+        if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
+        const text = await res.text();
+        const lines = text.trim().split('\n').filter(l => l.length > 0);
+        if (lines.length === 0) return [];
+        // skip accidental header row
+        const rows = lines.filter(l => /^\d/.test(l)).map(l => l.split(','));
+        return rows.map(r => ({
+          step:     +r[0],
+          phase:    +r[1],
+          layout:   r[2],
+          train:    +r[3],
+          val:      +r[4],
+          lr:       +r[5]
+        }));
+      } catch (e) {
+        document.getElementById('status').textContent = 'Error loading CSV: ' + e.message;
+        return null;
+      }
+    }
+
+    function render(data) {
+      const steps = data.map(d => d.step);
+      const train = data.map(d => d.train);
+      const val   = data.map(d => d.val);
+
+      // phase boundaries as vertical lines
+      const boundaries = [];
+      let lastPhase = -1;
+      for (const d of data) {
+        if (d.phase !== lastPhase) {
+          boundaries.push({ x: d.step, label: `P${String.fromCharCode(65+d.phase)} ${d.layout}` });
+          lastPhase = d.phase;
+        }
+      }
+
+      document.getElementById('log-name').textContent = logFile;
+
+      const ctx = document.getElementById('lossChart').getContext('2d');
+      if (chart) chart.destroy();
+
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: steps,
+          datasets: [
+            {
+              label: 'Train',
+              data: train,
+              borderColor: '#6af',
+              backgroundColor: '#6af',
+              pointRadius: 1,
+              tension: 0.2,
+            },
+            {
+              label: 'Val',
+              data: val,
+              borderColor: '#f66',
+              backgroundColor: '#f66',
+              pointRadius: 1,
+              tension: 0.2,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                afterLabel: function(ctx) {
+                  const d = data[ctx.dataIndex];
+                  return `Layout: ${d.layout} | LR: ${d.lr.toExponential(2)}`;
+                }
+              }
+            },
+            annotation: {
+              annotations: boundaries.reduce((acc, b, i) => {
+                acc['line' + i] = {
+                  type: 'line',
+                  xMin: b.x,
+                  xMax: b.x,
+                  borderColor: '#4a9',
+                  borderWidth: 1,
+                  borderDash: [4, 4],
+                  label: {
+                    content: b.label,
+                    display: true,
+                    position: 'start',
+                    color: '#4a9',
+                    font: { size: 10 }
+                  }
+                };
+                return acc;
+              }, {})
+            }
+          },
+          scales: {
+            x: {
+              title: { display: true, text: 'Step', color: '#888' },
+              ticks: { color: '#888' },
+              grid: { color: '#333' }
+            },
+            y: {
+              title: { display: true, text: 'Cross-entropy loss', color: '#888' },
+              ticks: { color: '#888' },
+              grid: { color: '#333' },
+              reverse: false
+            }
+          }
+        }
+      });
+
+      const latest = data[data.length - 1];
+      document.getElementById('status').textContent =
+        `Last eval: step ${latest.step}  |  ` +
+        `train ${latest.train.toFixed(4)}  val ${latest.val.toFixed(4)}  |  ` +
+        `layout ${latest.layout}  |  next refresh in ${REFRESH_MS/1000}s`;
+    }
+
+    async function refresh() {
+      const data = await loadData();
+      if (data && data.length) render(data);
+    }
+
+    refresh();
+    setInterval(refresh, REFRESH_MS);
+  </script>
+</body>
+</html>

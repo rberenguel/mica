@@ -18,7 +18,7 @@ Options:
 - `--n-per-prompt 5` — completions per prompt
 - `--temperatures 0.6 0.7 0.8 0.9 1.0` — varied temps for diversity
 - `--max-tokens 80` — completion length
-- `--weights mica_hourglass_v2.pt` — base model (default)
+- `--weights mica_origami_v2.pt` — base model (default)
 
 Generates `dpo_candidates.json`:
 ```json
@@ -78,8 +78,8 @@ Hyperparameters (tune if needed):
 ## Step 4: Generate and compare
 
 ```bash
-uv run python generate_hourglass.py --weights mica_dpo.pt "The fat man leaned back" --max-new-tokens 80
-uv run python generate_hourglass.py --weights mica_hourglass_v2.pt "The fat man leaned back" --max-new-tokens 80
+uv run python generate_origami.py --weights mica_dpo.pt "The fat man leaned back" --max-new-tokens 80
+uv run python generate_origami.py --weights mica_origami_v2.pt "The fat man leaned back" --max-new-tokens 80
 ```
 
 Trust your ear over the numbers.

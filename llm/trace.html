@@ -31,6 +31,24 @@
     .token-chip:hover  { border-color: var(--amber); color: var(--amber); }
     .token-chip.active { border-color: var(--amber); color: var(--amber); background: rgba(200,146,42,0.12); }
 
+    .examples-row { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.4rem; }
+
+    .example-btn {
+      font-family: var(--font);
+      font-size: 0.78rem;
+      padding: 3px 10px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      color: var(--text-dim);
+      background: transparent;
+      letter-spacing: 0.03em;
+      transition: border-color 0.1s, color 0.1s, background 0.1s;
+    }
+    .example-btn:hover {
+      border-color: var(--amber-dim);
+      color: var(--amber);
+    }
+
     .layer-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 
     .layer-tab {
@@ -133,6 +151,17 @@
     <div>
       <label for="prompt">Prompt</label>
       <textarea id="prompt" rows="2" spellcheck="false">The fat man in the doorway</textarea>
+      <div class="examples-row">
+        <button class="example-btn" data-text="John had a gun in his hand" data-hint="his → John in layers 4–8. gun → self/a/John, not hand — small models don't do semantic role binding">John had a gun in his hand</button>
+        <button class="example-btn" data-text="Frank reached for his wallet" data-hint="his → Frank, proper names resolve early">Frank reached for his wallet</button>
+        <button class="example-btn" data-text="She picked up the knife and held it close" data-hint="it → knife across conjunction, watch layers 6–9">She picked up the knife and held it close</button>
+        <button class="example-btn" data-text="The man put the gun in his pocket" data-hint="his → the man, single noun antecedent">The man put the gun in his pocket</button>
+        <button class="example-btn" data-text="He took the whisky and drank it" data-hint="it → whisky residually, also some bleed to and/drank">He took the whisky and drank it</button>
+        <button class="example-btn" data-text="She put the gun in her bag" data-hint="her → She, but also bleeds to the and in at deeper layers">She put the gun in her bag</button>
+      </div>
+      <div id="example-hint" class="example-hint" style="font-size:0.75rem;color:var(--muted);margin-top:0.3rem;min-height:1.2rem;">
+        Pronoun resolution tends to appear in deeper layers (4–9). Early layers (0–3) mostly handle syntax and local patterns.
+      </div>
     </div>
 
     <div class="controls">

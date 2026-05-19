@@ -9,8 +9,27 @@ wheels/
 # Virtual environments
 .venv
 
-# Corpus and binary data — too large for version control
-corpus/
+# macOS
+.DS_Store
+
+# Binary data — too large for version control by default
 *.bin
+
+# Model weights — ignore by default, allow current best
 *.pt
+!models/current/*.pt
+
+# ONNX — ignore by default, allow web assets
 *.onnx
+!llm/*.onnx
+
+# Ignore experiment/back-up weights and checkpoints
+models/experiments/
+models/backups/
+models/current/*_ckpt.pt
+
+# Training logs are useful but large — ignore by default
+logs/
+
+# Corpus raw text is huge and reproducible from download scripts
+corpus/raw/

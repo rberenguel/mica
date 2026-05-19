@@ -1,7 +1,7 @@
 import * as ort from 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.mjs';
 import { loadTokenizer } from './tokenizer.js';
 
-const BLOCK_SIZE = 256;
+const BLOCK_SIZE = 512;
 const AMBER = [200, 146, 42];
 const TEAL  = [42, 160, 180];
 
@@ -446,5 +446,18 @@ async function init() {
 
 document.addEventListener('DOMContentLoaded', () => {
   $('trace-btn').addEventListener('click', onTrace);
+
+  // Wire example prompt buttons
+  const exampleBtns = document.querySelectorAll('.example-btn');
+  const hintBox = document.getElementById('example-hint');
+  exampleBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const text = btn.dataset.text;
+      $('prompt').value = text;
+      if (hintBox && btn.dataset.hint) hintBox.textContent = btn.dataset.hint;
+      onTrace();
+    });
+  });
+
   init();
 });

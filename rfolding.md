@@ -1,4 +1,4 @@
-# Progressive Hourglass Folding — Implementation Plan
+# Progressive Origami Folding — Implementation Plan
 
 ## Experiment sequence
 
@@ -6,11 +6,11 @@
    192-dim multi-resolution attention model at depth 10. This is the
    comparison baseline.
 
-2. **Depth-10 hourglass** — fold the outer layers of the existing 10-layer
+2. **Depth-10 origami** — fold the outer layers of the existing 10-layer
    stack without changing `n_layer`. No config change, clean comparison.
-   This is the first hourglass experiment.
+   This is the first origami experiment.
 
-3. **Depth-16 hourglass** (optional, later) — expand to 16 layers and run
+3. **Depth-16 origami** (optional, later) — expand to 16 layers and run
    the full blueprint. Only worth attempting if depth-10 shows a clear win.
 
 ---
@@ -28,7 +28,7 @@ differently on each pass.
 
 ---
 
-## Depth-10 hourglass (first experiment)
+## Depth-10 origami (first experiment)
 
 With `n_layer=10` the natural split is:
 
@@ -59,7 +59,7 @@ time by aliasing `ModuleList` entries.
 
 ---
 
-## Depth-16 hourglass (later)
+## Depth-16 origami (later)
 
 The full blueprint target:
 
@@ -72,7 +72,7 @@ The full blueprint target:
 Physical layers: 12.  Functional depth: 16.
 
 Note: the current depth-10 middle bridge maps exactly to the 10-layer middle
-bridge here. If the depth-10 hourglass trains well, its middle bridge weights
+bridge here. If the depth-10 origami trains well, its middle bridge weights
 could seed the depth-16 run (with 3 new layers added at each end).
 
 Requires `n_layer = 16` in `config.py` — a breaking change, existing
@@ -82,15 +82,15 @@ checkpoints are not reusable.
 
 ## File strategy — keep the standard model intact
 
-The hourglass lives in its own files. The existing `model.py`, `config.py`,
+The origami lives in its own files. The existing `model.py`, `config.py`,
 `train.py`, and `train_phase1.py` are never touched, so switching back to the
 standard model is just a matter of which script you run.
 
 | New file | Purpose |
 |---|---|
-| `model_hourglass.py` | `HourglassBlock` (with depth embedding), `HourglassTransformer` (zone-aware forward + fold helpers) |
-| `train_hourglass.py` | Full folding curriculum: warmup → soft-tie → hard-fold × N, saves to `mica_hourglass.pt` |
-| `generate_hourglass.py` | Identical generation loop, but imports `HourglassTransformer` instead of `MicaTransformer` |
+| `model_origami.py` | `OrigamiBlock` (with depth embedding), `OrigamiTransformer` (zone-aware forward + fold helpers) |
+| `train_origami.py` | Full folding curriculum: warmup → soft-tie → hard-fold × N, saves to `mica_origami.pt` |
+| `generate_origami.py` | Identical generation loop, but imports `OrigamiTransformer` instead of `MicaTransformer` |
 
 | Unchanged file | Reason |
 |---|---|
@@ -98,17 +98,17 @@ standard model is just a matter of which script you run.
 | `train.py` / `train_phase1.py` | Standard training pipeline unaffected |
 | `generate.py` | Unchanged — still generates from the standard model |
 | `prepare.py` / `prepare_wiki.py` | Same tokenised data, shared by both models |
-| ONNX export scripts | Will need a hourglass-aware variant later, but not blocked |
+| ONNX export scripts | Will need a origami-aware variant later, but not blocked |
 
 `generate.py` hardcodes `from model import MicaTransformer`. The generation
 loop itself is identical for both models (same external API: `model(idx)` →
-`(logits, loss)`), so `generate_hourglass.py` is just `generate.py` with the
+`(logits, loss)`), so `generate_origami.py` is just `generate.py` with the
 import and instantiation swapped. No logic duplication.
 
-`HourglassTransformer` can import `MultiResolutionAttention` and `MLP` directly
+`OrigamiTransformer` can import `MultiResolutionAttention` and `MLP` directly
 from `model.py` — no duplication of those components.
 
-For depth-16 only: override `n_layer = 16` inside `train_hourglass.py` by
+For depth-16 only: override `n_layer = 16` inside `train_origami.py` by
 constructing the config locally rather than touching `config.py`.
 
 ---
