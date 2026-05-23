@@ -45,6 +45,8 @@ The tokenizer is trained from scratch on the target corpus and includes two boun
 
 The folding/unfolding process was a very slow, but seemingly "working" way of consistently reducing train and validation error without overfitting, although the improvements were very modest.
 
+See the _Training curves_ section for a link to how they looked for `n=10`.
+
 ---
 
 ## Corpus
@@ -115,6 +117,10 @@ uv run python src/train_origami2_cyclic.py
 ```
 
 The final weights are saved to `models/current/mica_origami_v2.pt`.
+
+### Training curves
+
+See the [n=10 cyclic training visualisation](https://mostlymaths.net/mica/plots/training_n10.html) — train and validation loss across 7 fold/unfold phases, from 8.5 down to 3.07. The magnifier lets you hover to zoom into any section and see how each phase ends lower than the last.
 
 ---
 
