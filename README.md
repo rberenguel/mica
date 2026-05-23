@@ -9,6 +9,8 @@ It is also the title of one of the first (and one of my favourite) "hard boiled"
 
 Mica is a small, hand-crafted Transformer trained on hardboiled noir fiction. It is not meant to be useful. It is meant to sound like Dashiell Hammett.
 
+![Mica generating noir prose in the browser](mica.png)
+
 ---
 
 ## Architecture
@@ -139,6 +141,8 @@ uv run python src/generate_origami.py --temperature 0.9 --max-new-tokens 100
 | `She walked into the room` | She walked into the room and froze the plump curtains. |
 | `I lit a cigarette` | I lit a cigarette and drank another. |
 | `A bullet whizzed past` | A bullet whizzed past him. Answered him. |
+
+![Mica generating noir prose in the browser](mica.png)
 
 Generation stops naturally at sentence or document boundaries. Lower temperature is more rigid, higher is more chaotic.
 

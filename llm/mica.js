@@ -202,10 +202,18 @@ function onStop() {
   stopRequested = true;
 }
 
+function stripSpuriousNewlines(text) {
+  // Collapse mid-sentence single newlines (OCR artifacts) to spaces.
+  // Keep double newlines (paragraph breaks) and newlines after sentence endings.
+  return text
+    .replace(/([^\n.!?])\n([^\n])/g, '$1 $2')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
 async function onContinue() {
   if (!session || !tokenizer) return;
 
-  const output = $('output').textContent.trim();
+  const output = stripSpuriousNewlines($('output').textContent.trim());
   if (!output) return;
 
   const temperature = parseFloat($('temperature').value);
