@@ -2,6 +2,7 @@ import * as ort from 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/o
 import { loadTokenizer } from './tokenizer.js';
 
 const BLOCK_SIZE = 512;
+const DEFAULT_MODEL = './mica_trace.onnx';
 
 // ── Sampling ──────────────────────────────────────────────────────────────────
 
@@ -9,21 +10,18 @@ function sampleLogits(logits, temperature) {
   const n = logits.length;
   const scaled = new Float32Array(n);
 
-  // Temperature scaling + find max for numerical stability
   let max = -Infinity;
   for (let i = 0; i < n; i++) {
     scaled[i] = logits[i] / temperature;
     if (scaled[i] > max) max = scaled[i];
   }
 
-  // Softmax
   let sum = 0;
   for (let i = 0; i < n; i++) {
     scaled[i] = Math.exp(scaled[i] - max);
     sum += scaled[i];
   }
 
-  // Multinomial sample
   const threshold = Math.random() * sum;
   let cumulative = 0;
   for (let i = 0; i < n; i++) {
@@ -35,9 +33,9 @@ function sampleLogits(logits, temperature) {
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
-async function loadModel() {
+async function loadModel(modelPath) {
   ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
-  return ort.InferenceSession.create('./mica_trace.onnx', {
+  return ort.InferenceSession.create(modelPath, {
     executionProviders: ['wasm'],
   });
 }
@@ -51,7 +49,6 @@ async function runModel(session, ids) {
     [1, T],
   );
   const result = await session.run({ input_ids: input });
-  // trace model returns logits (1, T, vocab_size); take last position
   const logits   = result.logits.data;
   const vocabSize = logits.length / T;
   return logits.slice((T - 1) * vocabSize, T * vocabSize);
@@ -65,26 +62,30 @@ function postprocess(text) {
   // 1. Capitalise first character
   text = text[0].toUpperCase() + text.slice(1);
 
-  // 2. Capitalise after sentence boundaries
+  // 2. Capitalise after sentence-ending punctuation + space
   text = text.replace(/([.!?] +)([a-z])/g, (_, boundary, letter) => boundary + letter.toUpperCase());
-  text = text.replace(/(\n)([a-z])/g, (_, newline, letter) => newline + letter.toUpperCase());
 
-  // 3. Insert missing space after punctuation before next word
+  // 3. Capitalise after paragraph break (double newline) or newline preceded by .!?
+  //    Don't capitalise after mid-sentence newlines — the corpus has OCR line breaks
+  text = text.replace(/([.!?])\n([a-z])/g, (_, punct, letter) => punct + '\n' + letter.toUpperCase());
+  text = text.replace(/\n\n([a-z])/g, (_, letter) => '\n\n' + letter.toUpperCase());
+
+  // 4. Insert missing space after punctuation before next word
   text = text.replace(/([.!?;,])([A-Za-z])/g, '$1 $2');
 
-  // 4. Fix common stuck-together BPE words
+  // 5. Fix common stuck-together BPE words
   text = text.replace(/\bThe(man|office|room|hall|door|boy|gun|car|street|house|hotel)\b/gi, 'The $1');
   text = text.replace(/\bA(man|boy|girl|gun|door|room|car|bullet|knife)\b/gi, 'A $1');
   text = text.replace(/\b(Man|Boy|Girl|Gun|Door)([a-z]+)\b/g, '$1 $2');
 
-  // 5. Collapse multiple spaces
+  // 6. Collapse multiple spaces
   text = text.replace(/ +/g, ' ');
 
-  // 6. Strip isolated number garbage at line edges
+  // 7. Strip isolated number garbage at line edges
   text = text.replace(/^\d+\.? */gm, '');
   text = text.replace(/ *\d+\.?$/gm, '');
 
-  // 7. Strip underscores (OCR artifacts)
+  // 8. Strip underscores (OCR artifacts)
   text = text.replace(/_/g, ' ');
 
   return text;
@@ -92,17 +93,12 @@ function postprocess(text) {
 
 // ── Generation ────────────────────────────────────────────────────────────────
 
-/**
- * Async generator: yields decoded text chunks.
- * Decodes the full accumulated sequence each step so BPE merging is
- * correct, then yields only the newly added text since the last step.
- */
 async function* generate(session, tokenizer, prompt, temperature, maxTokens, minTokens = 5) {
-  const eotId = 0;  // <|endoftext|>
-  const eosId = 1;  // <|eos|>
+  const eotId = 0;
+  const eosId = 1;
 
   let ids = tokenizer.encode(prompt);
-  if (ids.length === 0) ids = [0]; // fallback: start token
+  if (ids.length === 0) ids = [0];
 
   let prevText = tokenizer.decode(ids);
   let generated = 0;
@@ -110,7 +106,6 @@ async function* generate(session, tokenizer, prompt, temperature, maxTokens, min
   for (let i = 0; i < maxTokens; i++) {
     const logits = await runModel(session, ids);
 
-    // Mask out boundary tokens until we've hit the minimum length
     if (generated < minTokens) {
       logits[eosId] = -Infinity;
       logits[eotId] = -Infinity;
@@ -119,7 +114,6 @@ async function* generate(session, tokenizer, prompt, temperature, maxTokens, min
     const nextId = sampleLogits(logits, temperature);
     generated++;
 
-    // Natural stop on a boundary token once we're past the minimum
     if ((nextId === eotId || nextId === eosId) && generated >= minTokens) {
       break;
     }
@@ -127,13 +121,11 @@ async function* generate(session, tokenizer, prompt, temperature, maxTokens, min
     ids.push(nextId);
 
     const fullText = tokenizer.decode(ids);
-    // Only yield the newly added portion
     if (fullText.length > prevText.length) {
       const newText = fullText.slice(prevText.length);
       prevText = fullText;
       yield newText;
     }
-    // If decode didn't grow (rare BPE edge case), silently continue
   }
 }
 
@@ -144,17 +136,30 @@ const $ = (id) => document.getElementById(id);
 let session = null;
 let tokenizer = null;
 let stopRequested = false;
+let currentModelPath = DEFAULT_MODEL;
+let currentModelLabel = 'Mica (5.4M)';
 
-async function init() {
-  $('status').textContent = 'Loading model…';
+async function switchModel(path, label) {
+  currentModelPath = path;
+  currentModelLabel = label;
+
+  $('status').textContent = `Loading ${label}…`;
+  $('generate-btn').disabled = true;
+
   try {
-    [session, tokenizer] = await Promise.all([loadModel(), loadTokenizer()]);
-    $('status').textContent = 'Ready.';
+    session = await loadModel(path);
+    $('status').textContent = `${label} ready.`;
     $('generate-btn').disabled = false;
+    $('continue-btn').disabled = false;
   } catch (err) {
-    $('status').textContent = `Error: ${err.message}`;
+    $('status').textContent = `Error loading ${label}: ${err.message}`;
     console.error(err);
   }
+}
+
+async function init() {
+  tokenizer = await loadTokenizer();
+  await switchModel(DEFAULT_MODEL, 'Mica (5.4M)');
 }
 
 async function onGenerate() {
@@ -167,9 +172,10 @@ async function onGenerate() {
   if (!prompt) return;
 
   $('generate-btn').disabled = true;
+  $('continue-btn').disabled = true;
   $('stop-btn').disabled = false;
   $('output').textContent = prompt;
-  $('status').textContent = 'Generating…';
+  $('status').textContent = `Generating with ${currentModelLabel}…`;
   stopRequested = false;
 
   let rawText = prompt;
@@ -180,20 +186,55 @@ async function onGenerate() {
       $('output').textContent = postprocess(rawText);
       $('output').scrollTop = $('output').scrollHeight;
     }
-    // Final clean pass
     $('output').textContent = postprocess(rawText);
-    $('status').textContent = stopRequested ? 'Stopped.' : 'Done.';
+    $('status').textContent = stopRequested ? 'Stopped.' : `Done (${currentModelLabel}).`;
   } catch (err) {
     $('status').textContent = `Error: ${err.message}`;
     console.error(err);
   } finally {
     $('generate-btn').disabled = false;
+    $('continue-btn').disabled = false;
     $('stop-btn').disabled = true;
   }
 }
 
 function onStop() {
   stopRequested = true;
+}
+
+async function onContinue() {
+  if (!session || !tokenizer) return;
+
+  const output = $('output').textContent.trim();
+  if (!output) return;
+
+  const temperature = parseFloat($('temperature').value);
+  const maxTokens   = parseInt($('max-tokens').value, 10);
+
+  $('generate-btn').disabled = true;
+  $('continue-btn').disabled = true;
+  $('stop-btn').disabled = false;
+  $('status').textContent = `Continuing with ${currentModelLabel}…`;
+  stopRequested = false;
+
+  let rawText = output;
+  try {
+    for await (const token of generate(session, tokenizer, output, temperature, maxTokens, 5)) {
+      if (stopRequested) break;
+      rawText += token;
+      $('output').textContent = postprocess(rawText);
+      $('output').scrollTop = $('output').scrollHeight;
+    }
+    $('output').textContent = postprocess(rawText);
+    $('status').textContent = stopRequested ? 'Stopped.' : `Done (${currentModelLabel}).`;
+  } catch (err) {
+    $('status').textContent = `Error: ${err.message}`;
+    console.error(err);
+  } finally {
+    $('generate-btn').disabled = false;
+    $('continue-btn').disabled = false;
+    $('stop-btn').disabled = true;
+  }
 }
 
 function onTempChange() {
@@ -203,6 +244,17 @@ function onTempChange() {
 document.addEventListener('DOMContentLoaded', () => {
   $('generate-btn').addEventListener('click', onGenerate);
   $('stop-btn').addEventListener('click', onStop);
+  $('continue-btn').addEventListener('click', onContinue);
   $('temperature').addEventListener('input', onTempChange);
+
+  // Wire model selector buttons
+  document.querySelectorAll('.model-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.model-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      switchModel('./' + btn.dataset.model, btn.dataset.label);
+    });
+  });
+
   init();
 });

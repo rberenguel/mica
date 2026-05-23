@@ -16,6 +16,9 @@ class MicaConfig:
     dropout: float = 0.1         # High dropout for low-data regime
     bias: bool = False           # True: bias in Linears/LayerNorms. False: better stability.
     
+    # MLP expansion ratio (2 = small, 4 = standard GPT)
+    ffn_ratio: int = 4
+    
     # Origami folding
     max_loops: int = 8          # Maximum loop count per block (loop-specific LNs)
     

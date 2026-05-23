@@ -191,3 +191,60 @@ button {
   color: var(--muted);
   letter-spacing: 0.08em;
 }
+
+.blurb {
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: var(--text);
+  border-left: 2px solid var(--amber-dim);
+  padding-left: 1rem;
+  margin-bottom: 1.2rem;
+}
+.blurb p { margin-bottom: 0.6rem; }
+.blurb p:last-child { margin-bottom: 0; }
+
+.blurb .trace-link {
+  margin-top: 0.5rem;
+}
+.blurb .trace-link a {
+  color: var(--amber);
+  text-decoration: none;
+}
+.blurb .trace-link a:hover {
+  text-decoration: underline;
+}
+
+.model-select {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.model-btn {
+  font-family: var(--font);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  padding: 0.35rem 0.9rem;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.model-btn:hover {
+  border-color: var(--amber-dim);
+  color: var(--text);
+}
+
+.model-btn.active {
+  background: var(--amber);
+  color: var(--bg);
+  border-color: var(--amber);
+}
+
+.model-btn.active:hover {
+  background: #e0a830;
+  border-color: #e0a830;
+}

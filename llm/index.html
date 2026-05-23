@@ -13,9 +13,36 @@
   </header>
 
   <main>
+    <div class="blurb">
+      <p>
+        <strong>Mica</strong> is a tiny (5.4M parameter) Transformer trained on Project Gutenberg
+        and fine-tuned on hardboiled noir fiction — Dashiell Hammett, Black Mask magazine,
+        pulp detective stories. It is not meant to be useful. It is meant to write like
+        a 1920s dime-novel ghost.
+      </p>
+      <p>
+        The model uses an "origami" cyclic training architecture: during Gutenberg pre-training,
+        outer transformer layers are repeatedly folded (shared weights) and unfolded (restored)
+        as a regulariser. The final model is fully unfolded for inference. A smaller variant,
+        <strong>Cromulent Noir</strong> (2.5M parameters), was trained longer with the same
+        curriculum to see how low a tiny model can go.
+      </p>
+      <p class="trace-link">
+        <a href="trace.html">→ Open the token trace viewer</a> to visualise attention heads,
+        residual streams, and per-layer predictions as the model generates each token.
+      </p>
+    </div>
+    <div>
+      <label>Model</label>
+      <div class="model-select" style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+        <button class="model-btn active" data-model="mica_trace.onnx" data-label="Mica (5.4M)">Mica (5.4M)</button>
+        <button class="model-btn" data-model="mica_small_trace.onnx" data-label="Cromulent Noir (2.5M)">Cromulent Noir (2.5M)</button>
+      </div>
+    </div>
+
     <div>
       <label for="prompt">Prompt</label>
-      <textarea id="prompt" rows="4" spellcheck="false">The rain came down hard on the empty street.</textarea>
+      <textarea id="prompt" rows="4" spellcheck="false">The rain came down hard on</textarea>
     </div>
 
     <div>
@@ -37,6 +64,7 @@
 
       <div class="buttons">
         <button id="stop-btn" disabled>Stop</button>
+        <button id="continue-btn" disabled>Continue</button>
         <button id="generate-btn" disabled>Generate</button>
       </div>
     </div>

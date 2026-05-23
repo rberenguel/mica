@@ -12,13 +12,15 @@ let tokenizer  = null;
 let traceData  = null;
 let activeLayer = 0;
 let activePos  = -1;
+let currentModelPath = './mica_trace.onnx';
+let currentModelLabel = 'Mica (5.4M)';
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
-async function loadModels() {
+async function loadModels(modelPath) {
   ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21/dist/';
   [session, tokenizer] = await Promise.all([
-    ort.InferenceSession.create('./mica_trace.onnx', { executionProviders: ['wasm'] }),
+    ort.InferenceSession.create(modelPath, { executionProviders: ['wasm'] }),
     loadTokenizer(),
   ]);
 }
@@ -416,14 +418,16 @@ async function onTrace() {
   if (!prompt || !session) return;
 
   $('trace-btn').disabled = true;
-  $('status').textContent = 'Running…';
+  $('status').textContent = `Running ${currentModelLabel}…`;
 
   try {
     activePos  = -1;
+    traceData  = null;
+    $('viz').style.display = 'none'; // clear old viz while loading
     traceData  = await runTrace(prompt);
     renderAll(traceData);
     $('status').textContent =
-      `${traceData.T} token${traceData.T !== 1 ? 's' : ''} · ${traceData.nLayer} layers · ${traceData.nHead} heads`;
+      `${currentModelLabel} · ${traceData.T} token${traceData.T !== 1 ? 's' : ''} · ${traceData.nLayer} layers · ${traceData.nHead} heads`;
   } catch (err) {
     $('status').textContent = `Error: ${err.message}`;
     console.error(err);
@@ -432,16 +436,28 @@ async function onTrace() {
   }
 }
 
-async function init() {
-  $('status').textContent = 'Loading model…';
+async function switchModel(path, label) {
+  currentModelPath = path;
+  currentModelLabel = label;
+
+  $('status').textContent = `Loading ${label}…`;
+  $('trace-btn').disabled = true;
+  traceData = null;
+  $('viz').style.display = 'none';
+
   try {
-    await loadModels();
-    $('status').textContent = 'Ready.';
+    await loadModels(path);
+    $('status').textContent = `${label} ready.`;
     $('trace-btn').disabled = false;
   } catch (err) {
-    $('status').textContent = `Error: ${err.message}`;
+    $('status').textContent = `Error loading ${label}: ${err.message}`;
     console.error(err);
   }
+}
+
+async function init() {
+  tokenizer = await loadTokenizer();
+  await switchModel('./mica_trace.onnx', 'Mica (5.4M)');
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -456,6 +472,15 @@ document.addEventListener('DOMContentLoaded', () => {
       $('prompt').value = text;
       if (hintBox && btn.dataset.hint) hintBox.textContent = btn.dataset.hint;
       onTrace();
+    });
+  });
+
+  // Wire model selector buttons
+  document.querySelectorAll('.model-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.model-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      switchModel('./' + btn.dataset.model, btn.dataset.label);
     });
   });
 

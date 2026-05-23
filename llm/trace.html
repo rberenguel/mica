@@ -149,6 +149,14 @@
 
   <main>
     <div>
+      <label>Model</label>
+      <div class="model-select" style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+        <button class="model-btn active" data-model="mica_trace.onnx" data-label="Mica (5.4M)">Mica (5.4M)</button>
+        <button class="model-btn" data-model="mica_small_trace.onnx" data-label="Cromulent Noir (2.5M)">Cromulent Noir (2.5M)</button>
+      </div>
+    </div>
+
+    <div>
       <label for="prompt">Prompt</label>
       <textarea id="prompt" rows="2" spellcheck="false">The fat man in the doorway</textarea>
       <div class="examples-row">

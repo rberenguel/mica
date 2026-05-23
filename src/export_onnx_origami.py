@@ -22,14 +22,29 @@ from torch.nn import functional as F
 from config import MicaConfig
 from model_origami import OrigamiTransformer, restore_segments, restore_folds
 
-WEIGHTS = Path("models/current/mica_origami_v2.pt")
-OUT_DIR = Path("llm")
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--weights", default="models/current/mica_origami_v2.pt")
+parser.add_argument("--output",  default="llm/mica.onnx")
+parser.add_argument("--trace-output", default="llm/mica_trace.onnx")
+parser.add_argument("--n-layer",    type=int, default=None)
+parser.add_argument("--ffn-ratio",  type=int, default=None)
+args = parser.parse_args()
+
+WEIGHTS = Path(args.weights)
+OUT_DIR = Path(args.output).parent
+TRACE_OUT = Path(args.trace_output)
 OPSET   = 17
 
 
 def load_model(weights_path: Path) -> OrigamiTransformer:
     """Load origami model from checkpoint, restoring segments."""
     config = MicaConfig()
+    if args.n_layer is not None:
+        config.n_layer = args.n_layer
+    if args.ffn_ratio is not None:
+        config.ffn_ratio = args.ffn_ratio
     config.device = "cpu"
     config.dropout = 0.0
 
@@ -72,8 +87,8 @@ class OrigamiForONNX(nn.Module):
 
 
 def export_inference(model: OrigamiTransformer):
-    out = OUT_DIR / "mica.onnx"
-    OUT_DIR.mkdir(exist_ok=True)
+    out = Path(args.output)
+    out.parent.mkdir(exist_ok=True)
 
     wrapper = OrigamiForONNX(model)
     wrapper.eval()
@@ -167,8 +182,8 @@ class OrigamiTraceONNX(nn.Module):
 
 
 def export_trace(model: OrigamiTransformer):
-    out = OUT_DIR / "mica_trace.onnx"
-    OUT_DIR.mkdir(exist_ok=True)
+    out = Path(args.trace_output)
+    out.parent.mkdir(exist_ok=True)
 
     wrapper = OrigamiTraceONNX(model)
     wrapper.eval()
