@@ -1,4 +1,4 @@
-# Mica
+# <img src="icon.png" alt="Mica Icon" width="32" height="32"> Mica
 
 > *De mica en mica s'omple la pica.*
 > — Catalan proverb
