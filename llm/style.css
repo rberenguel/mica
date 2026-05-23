@@ -4,8 +4,9 @@
   --bg:       #111111;
   --bg-raise: #1c1c1c;
   --border:   #2e2e2e;
-  --amber:    #c8922a;
+  --amber:    #cc992a;
   --amber-dim:#7a5818;
+  --highlight: #f90;
   --text:     #d4b483;
   --muted:    #6b5a3e;
   --font:     'Courier New', Courier, monospace;
@@ -18,6 +19,10 @@ html, body {
   font-family: var(--font);
   font-size: 15px;
   line-height: 1.6;
+}
+
+a {
+  color: var(--highlight);
 }
 
 body {
@@ -35,7 +40,7 @@ header {
 h1 {
   font-size: 2.4rem;
   letter-spacing: 0.25em;
-  color: var(--amber);
+  color: var(--highlight);
   text-transform: uppercase;
 }
 
@@ -207,7 +212,7 @@ button {
   margin-top: 0.5rem;
 }
 .blurb .trace-link a {
-  color: var(--amber);
+  color: var(--highlight);
   text-decoration: none;
 }
 .blurb .trace-link a:hover {
