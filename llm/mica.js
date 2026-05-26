@@ -255,6 +255,14 @@ document.addEventListener('DOMContentLoaded', () => {
   $('continue-btn').addEventListener('click', onContinue);
   $('temperature').addEventListener('input', onTempChange);
 
+  // Wire example prompt buttons
+  document.querySelectorAll('.example-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      $('prompt').value = btn.dataset.text;
+      $('prompt').focus();
+    });
+  });
+
   // Wire model selector buttons
   document.querySelectorAll('.model-btn').forEach((btn) => {
     btn.addEventListener('click', () => {

@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""
+Fine-tune with masked input + moving teacher + curriculum mixing.
+
+This is the correct objective match to the pretraining:
+  - Student sees masked spans (like pretraining)
+  - Teacher sees unmasked input (like pretraining)
+  - Next-token CE on unmasked positions
+  - Cosine latent on masked positions
+  - Teacher reset to student, then EMA (moving, not frozen)
+  - Phased curriculum: GB warmup → fast ramp → noir cook
+
+The key insight: the pretraining used masked input. The fine-tuning must
+also use masked input. Unmasked input is a distribution shift.
+
+Usage:
+    uv run python src/finetune_masked_hybrid_moving_teacher.py \
+        --ckpt models/experiments/teacher_student_hybrid_folding/ckpt.pt \
+        --noir-train data/train.bin --noir-val data/val.bin \
+        --gb-train data/wiki_train.bin --gb-val data/wiki_val.bin \
+        --warmup-steps 8000 --ramp-steps 2000 --cook-steps 15000 \
+        --tau 0.99 --latent-weight 0.1 --max-lr 5e-5 \
+        --out-dir models/experiments/teacher_student_hybrid_folding/noir_finetune_v7
+"""
+import argparse
+import math
+import os
+import time
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from config import MicaConfig
+from model_origami import OrigamiTransformer, restore_segments
+
+
+def get_batch(data, batch_size, block_size, device):
+    ix = torch.randint(len(data) - block_size, (batch_size,))
+    x = torch.stack([torch.from_numpy(data[i:i + block_size].astype(np.int64)) for i in ix])
+    y = torch.stack([torch.from_numpy(data[i + 1:i + 1 + block_size].astype(np.int64)) for i in ix])
+    return x.to(device), y.to(device)
+
+
+def get_mixed_batch(noir_data, gb_data, batch_size, block_size, device, noir_ratio=0.5):
+    if torch.rand(1).item() < noir_ratio:
+        return get_batch(noir_data, batch_size, block_size, device)
+    else:
+        return get_batch(gb_data, batch_size, block_size, device)
+
+
+def mask_spans(x, mask_token_id, mask_prob=0.15, min_span=3, max_span=10):
+    b, t = x.shape
+    masked_x = x.clone()
+    mask = torch.zeros_like(x, dtype=torch.bool)
+
+    for i in range(b):
+        n_masked = int(t * mask_prob)
+        masked_count = 0
+        attempts = 0
+        while masked_count < n_masked and attempts < t:
+            span_len = torch.randint(min_span, max_span + 1, (1,)).item()
+            start = torch.randint(0, max(1, t - span_len + 1), (1,)).item()
+            span_mask = torch.zeros(t, dtype=torch.bool, device=x.device)
+            span_mask[start:start + span_len] = True
+            new_mask = span_mask & ~mask[i]
+            if new_mask.any():
+                masked_x[i, new_mask] = mask_token_id
+                mask[i] |= new_mask
+                masked_count += new_mask.sum().item()
+            attempts += span_len
+    return masked_x, mask
+
+
+def fixed_normalize(x, eps=1e-6):
+    return F.layer_norm(x, x.shape[-1:], weight=None, bias=None, eps=eps)
+
+
+def cosine_loss(student_out, teacher_out, mask, temp=0.1):
+    s = student_out[mask]
+    t = teacher_out[mask]
+    s = F.normalize(s, dim=-1, eps=1e-6)
+    t = F.normalize(t, dim=-1, eps=1e-6)
+    cos = (s * t).sum(dim=-1)
+    return ((1.0 - cos) / temp).mean()
+
+
+@torch.no_grad()
+def update_teacher_ema(student, teacher, tau=0.99):
+    for t_param, s_param in zip(teacher.parameters(), student.parameters()):
+        t_param.data.mul_(tau).add_(s_param.data, alpha=1.0 - tau)
+
+
+@torch.no_grad()
+def estimate_loss(model, data, batch_size, block_size, device, eval_iters=200):
+    model.eval()
+    losses = torch.zeros(eval_iters)
+    for k in range(eval_iters):
+        X, Y = get_batch(data, batch_size, block_size, device)
+        _, loss = model(X, Y)
+        losses[k] = loss.item()
+    model.train()
+    return losses.mean().item()
+
+
+def get_lr(step, warmup_steps, max_steps, max_lr, min_lr):
+    if step < warmup_steps:
+        return max_lr * (step + 1) / warmup_steps
+    ratio = (step - warmup_steps) / max(1, max_steps - warmup_steps)
+    return min_lr + 0.5 * (max_lr - min_lr) * (1.0 + math.cos(math.pi * ratio))
+
+
+def load_models(ckpt_path, device):
+    print(f"Loading checkpoint from {ckpt_path}...")
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+    config = ckpt.get("config", MicaConfig())
+
+    if "student" in ckpt:
+        sd_student = ckpt["student"]
+        sd_teacher = ckpt["teacher"]
+    elif "model" in ckpt:
+        sd_student = ckpt["model"]
+        sd_teacher = ckpt["model"]
+    else:
+        sd_student = ckpt
+        sd_teacher = ckpt
+
+    wte_shape = sd_student.get("transformer.wte.weight")
+    if wte_shape is not None:
+        actual_vocab = wte_shape.shape[0]
+        if actual_vocab != config.vocab_size:
+            print(f"  Checkpoint vocab {actual_vocab} vs config {config.vocab_size}")
+            config.vocab_size = actual_vocab
+
+    student = OrigamiTransformer(config).to(device)
+    teacher = OrigamiTransformer(config).to(device)
+
+    student.load_state_dict(sd_student, strict=False)
+    teacher.load_state_dict(sd_teacher, strict=False)
+
+    if "segments" in ckpt:
+        restore_segments(student, ckpt["segments"])
+        restore_segments(teacher, ckpt["segments"])
+
+    student.lm_head.weight = student.transformer.wte.weight
+    teacher.lm_head.weight = teacher.transformer.wte.weight
+
+    print(f"  Layout: {student.layout}")
+    print(f"  Params: {sum(p.numel() for p in student.parameters())/1e6:.2f}M")
+    return student, teacher, config
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ckpt", type=str, required=True)
+    parser.add_argument("--noir-train", type=str, default="data/train.bin")
+    parser.add_argument("--noir-val",   type=str, default="data/val.bin")
+    parser.add_argument("--gb-train",   type=str, default="data/wiki_train.bin")
+    parser.add_argument("--gb-val",     type=str, default="data/wiki_val.bin")
+    parser.add_argument("--warmup-steps", type=int, default=8_000)
+    parser.add_argument("--ramp-steps", type=int, default=2_000)
+    parser.add_argument("--cook-steps", type=int, default=15_000)
+    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--block-size", type=int, default=512)
+    parser.add_argument("--dropout",    type=float, default=0.05)
+    parser.add_argument("--device",     type=str, default=None)
+    parser.add_argument("--warmup",     type=int, default=500)
+    parser.add_argument("--max-lr",     type=float, default=5e-5)
+    parser.add_argument("--min-lr",     type=float, default=1e-6)
+    parser.add_argument("--grad-clip",  type=float, default=1.0)
+    parser.add_argument("--latent-weight", type=float, default=0.1)
+    parser.add_argument("--tau",        type=float, default=0.99)
+    parser.add_argument("--temp",       type=float, default=0.1)
+    parser.add_argument("--mask-prob",  type=float, default=0.15)
+    parser.add_argument("--min-span",   type=int, default=3)
+    parser.add_argument("--max-span",   type=int, default=10)
+    parser.add_argument("--log-every",  type=int, default=100)
+    parser.add_argument("--eval-every", type=int, default=500)
+    parser.add_argument("--ckpt-every", type=int, default=2_000)
+    parser.add_argument("--out-dir", type=str,
+                        default="models/experiments/teacher_student_hybrid_folding/noir_finetune_v7")
+    args = parser.parse_args()
+
+    total_steps = args.warmup_steps + args.ramp_steps + args.cook_steps
+    print(f"Phased: {args.warmup_steps} GB warmup + {args.ramp_steps} ramp + {args.cook_steps} cook = {total_steps} total")
+
+    device = args.device or ("mps" if torch.backends.mps.is_available() else "cpu")
+    print(f"Device: {device.upper()}")
+
+    os.makedirs(args.out_dir, exist_ok=True)
+    ckpt_path = os.path.join(args.out_dir, "ckpt.pt")
+    final_path = os.path.join(args.out_dir, "final.pt")
+
+    # ── Load models ──────────────────────────────────────────────────────────
+    student, teacher, config = load_models(args.ckpt, device)
+    config.dropout = args.dropout
+    mask_token_id = config.vocab_size
+
+    # ── Reset teacher to student ─────────────────────────────────────────────
+    print("Resetting teacher to student (co-evolve on new domain)")
+    teacher.load_state_dict(student.state_dict())
+    for p in teacher.parameters():
+        p.requires_grad = False
+    teacher.eval()
+
+    # ── Data ───────────────────────────────────────────────────────────────
+    noir_train = np.memmap(args.noir_train, dtype=np.uint16, mode="r")
+    noir_val   = np.memmap(args.noir_val,   dtype=np.uint16, mode="r")
+    gb_train   = np.memmap(args.gb_train,   dtype=np.uint16, mode="r")
+    gb_val     = np.memmap(args.gb_val,     dtype=np.uint16, mode="r")
+
+    print(f"\nNoir:      {len(noir_train):,} / {len(noir_val):,}")
+    print(f"Gutenberg: {len(gb_train):,} / {len(gb_val):,}")
+    print(f"Latent weight: {args.latent_weight}  EMA tau: {args.tau}")
+    print(f"Mask: {args.mask_prob*100:.0f}% span ({args.min_span}-{args.max_span})")
+
+    # ── Optimizer ──────────────────────────────────────────────────────────
+    decay = [p for n, p in student.named_parameters() if p.dim() >= 2]
+    no_decay = [p for n, p in student.named_parameters() if p.dim() < 2]
+    optimizer = torch.optim.AdamW(
+        [{"params": decay, "weight_decay": 0.1},
+         {"params": no_decay, "weight_decay": 0.0}],
+        lr=args.max_lr, betas=(0.9, 0.95),
+    )
+
+    # ── Training loop ─────────────────────────────────────────────────────
+    student.train()
+    t0 = time.perf_counter()
+    ce_acc = 0.0
+    lat_acc = 0.0
+
+    for step in range(total_steps):
+        lr = get_lr(step, args.warmup, total_steps, args.max_lr, args.min_lr)
+        for g in optimizer.param_groups:
+            g["lr"] = lr
+
+        # Determine phase and noir ratio
+        if step < args.warmup_steps:
+            phase_name = "WARMUP"
+            ratio = 0.0
+        elif step < args.warmup_steps + args.ramp_steps:
+            phase_name = "RAMP"
+            ramp_progress = (step - args.warmup_steps) / args.ramp_steps
+            ratio = ramp_progress
+        else:
+            phase_name = "COOK"
+            ratio = 1.0
+
+        # Mixed batch
+        X, Y = get_mixed_batch(noir_train, gb_train, args.batch_size, args.block_size,
+                               device, ratio)
+
+        # Mask spans for student (like pretraining)
+        masked_X, mask = mask_spans(X, mask_token_id, args.mask_prob,
+                                    args.min_span, args.max_span)
+
+        # ── Student forward (masked input) ─────────────────────────────────
+        s_emb = student.transformer.drop(student.transformer.wte(masked_X))
+        s_h = s_emb
+        for phys_idx, loop_count in student.segments:
+            block = student.transformer.h[phys_idx]
+            for loop_idx in range(loop_count):
+                s_h = block(s_h, start_pos=0, loop_idx=loop_idx)
+        s_latent = student.transformer.ln_f(s_h)
+        s_logits = student.lm_head(s_latent)
+
+        # ── Teacher forward (unmasked input) ───────────────────────────────
+        with torch.no_grad():
+            t_emb = teacher.transformer.drop(teacher.transformer.wte(X))
+            t_h = t_emb
+            for phys_idx, loop_count in teacher.segments:
+                block = teacher.transformer.h[phys_idx]
+                for loop_idx in range(loop_count):
+                    t_h = block(t_h, start_pos=0, loop_idx=loop_idx)
+            t_latent = teacher.transformer.ln_f(t_h)
+
+        # ── Losses ─────────────────────────────────────────────────────────
+        targets = Y[:, :-1].contiguous()
+        s_logits_shift = s_logits[:, :-1, :].contiguous()
+        mask_shift = mask[:, 1:].contiguous()
+
+        # CE on unmasked tokens
+        ce_mask = ~mask_shift
+        if ce_mask.any():
+            ce_loss = F.cross_entropy(
+                s_logits_shift.view(-1, s_logits_shift.size(-1)),
+                targets.view(-1),
+                reduction='none',
+            )
+            ce_loss = ce_loss[ce_mask.view(-1)].mean()
+        else:
+            ce_loss = torch.tensor(0.0, device=device)
+
+        # Cosine latent on masked tokens
+        s_norm = fixed_normalize(s_latent[:, 1:, :])
+        t_norm = fixed_normalize(t_latent[:, 1:, :])
+        if mask_shift.any():
+            lat_loss = cosine_loss(s_norm, t_norm, mask_shift, temp=args.temp)
+        else:
+            lat_loss = torch.tensor(0.0, device=device)
+
+        loss = ce_loss + args.latent_weight * lat_loss
+
+        # ── Backward ───────────────────────────────────────────────────────
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(student.parameters(), args.grad_clip)
+        optimizer.step()
+
+        # Teacher EMA (moving, not frozen)
+        update_teacher_ema(student, teacher, tau=args.tau)
+
+        ce_acc += ce_loss.item()
+        lat_acc += lat_loss.item()
+
+        # ── Logging ────────────────────────────────────────────────────────
+        if (step + 1) % args.log_every == 0:
+            n = args.log_every
+            dt = time.perf_counter() - t0
+            t0 = time.perf_counter()
+            print(f"Step {step + 1:>5} [{phase_name} noir={ratio:.0%}]: ce {ce_acc/n:.4f}  lat {lat_acc/n:.4f}  "
+                  f"lr {lr:.2e}  ({dt:.1f}s / {n})")
+            ce_acc = 0.0
+            lat_acc = 0.0
+
+        # ── Eval ───────────────────────────────────────────────────────────
+        if (step + 1) % args.eval_every == 0:
+            noir_loss = estimate_loss(student, noir_val, args.batch_size, args.block_size, device, eval_iters=100)
+            gb_loss   = estimate_loss(student, gb_val,   args.batch_size, args.block_size, device, eval_iters=100)
+            print(f"  → noir {noir_loss:.4f}  gb {gb_loss:.4f}  "
+                  f"(ppl noir {math.exp(noir_loss):.1f}  gb {math.exp(gb_loss):.1f})")
+            student.train()
+
+        # ── Checkpoint ─────────────────────────────────────────────────────
+        if (step + 1) % args.ckpt_every == 0:
+            torch.save({
+                "model": student.state_dict(),
+                "config": config,
+                "step": step + 1,
+                "layout": student.layout,
+                "segments": student.segments,
+            }, ckpt_path)
+            print(f"  → checkpoint saved")
+
+    # ── Final save ─────────────────────────────────────────────────────────
+    torch.save({
+        "model": student.state_dict(),
+        "config": config,
+        "layout": student.layout,
+        "segments": student.segments,
+    }, final_path)
+    print(f"\nFine-tuning complete. Saved to {final_path}")
+
+
+if __name__ == "__main__":
+    main()

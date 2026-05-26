@@ -28,6 +28,12 @@
         <strong>Cromulent Noir</strong> (2.5M parameters), was trained longer with the same
         curriculum to see how low a tiny model can go.
       </p>
+      <p>
+        A third variant, <strong>Cromulent Noir — Student</strong>, uses a teacher-student hybrid
+        objective: the model learns next-token prediction while also aligning its latent
+        representations with a slowly-updating teacher network. This regulariser encourages
+        richer, more stable contextual embeddings without increasing parameters.
+      </p>
       <p class="trace-link">
         <a href="trace.html">→ Open the token trace viewer</a> to visualise attention heads,
         residual streams, and per-layer predictions as the model generates each token.
@@ -38,12 +44,25 @@
       <div class="model-select" style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
         <button class="model-btn active" data-model="mica_trace.onnx" data-label="Mica (5.4M)">Mica (5.4M)</button>
         <button class="model-btn" data-model="mica_small_trace.onnx" data-label="Cromulent Noir (2.5M)">Cromulent Noir (2.5M)</button>
+        <button class="model-btn" data-model="mica_small_teacher_student_trace.onnx" data-label="Cromulent Noir — Student (2.5M)">Cromulent Noir — Student (2.5M)</button>
       </div>
     </div>
 
     <div>
       <label for="prompt">Prompt</label>
       <textarea id="prompt" rows="4" spellcheck="false">The rain came down hard on</textarea>
+      <div class="examples-row" style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.4rem;">
+        <button class="example-btn" data-text="The rain came down hard on">The rain</button>
+        <button class="example-btn" data-text="The fat man leaned back">The fat man</button>
+        <button class="example-btn" data-text="I lit a cigarette">I lit a cigarette</button>
+        <button class="example-btn" data-text="She walked into the room">She walked in</button>
+        <button class="example-btn" data-text="A bullet whizzed past">A bullet</button>
+        <button class="example-btn" data-text="The dame walked in">The dame</button>
+        <button class="example-btn" data-text="He was dead when I found him">He was dead</button>
+        <button class="example-btn" data-text="The gun was cold">The gun</button>
+        <button class="example-btn" data-text="It was a dark night">Dark night</button>
+        <button class="example-btn" data-text="The door creaked open">Creaked door</button>
+      </div>
     </div>
 
     <div>
