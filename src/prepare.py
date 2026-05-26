@@ -1,11 +1,16 @@
+import argparse
 import os
 import re
 import numpy as np
 from tokenizers import Tokenizer, models, trainers, pre_tokenizers, decoders
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--vocab-size", type=int, default=5000, help="Tokenizer vocabulary size")
+args = parser.parse_args()
+
 # --- 1. Train the Custom Tokenizer ---
-print("Training custom BPE Tokenizer...")
-vocab_size = 5000
+print(f"Training custom BPE Tokenizer (vocab_size={args.vocab_size})...")
+vocab_size = args.vocab_size
 
 tokenizer = Tokenizer(models.BPE())
 tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
@@ -22,7 +27,7 @@ if not os.path.exists(corpus_path):
 
 tokenizer.train([corpus_path], trainer=trainer)
 tokenizer.save("mica_tokenizer.json")
-print("Tokenizer saved as mica_tokenizer.json")
+print(f"Tokenizer saved as mica_tokenizer.json (vocab_size={vocab_size})")
 
 # --- 2. Encode the Corpus ---
 print("Reading and encoding corpus...")

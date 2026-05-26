@@ -63,6 +63,7 @@ parser.add_argument("--weights",                    default="models/current/mica
 parser.add_argument("--tokenizer",                  default="mica_tokenizer.json", help="Path to tokenizer")
 parser.add_argument("--min-new-tokens", type=int,   default=5,                     help="Minimum tokens before natural stop is allowed")
 parser.add_argument("--n-layer",        type=int,   default=None,                  help="Override config.n_layer (for non-standard depth checkpoints)")
+parser.add_argument("--ffn-ratio",      type=int,   default=None,                  help="Override config.ffn_ratio (e.g. 2 for small models)")
 args = parser.parse_args()
 
 device    = 'mps' if torch.backends.mps.is_available() else 'cpu'
@@ -72,17 +73,61 @@ print("Loading model...")
 config = MicaConfig()
 if args.n_layer is not None:
     config.n_layer = args.n_layer
+if args.ffn_ratio is not None:
+    config.ffn_ratio = args.ffn_ratio
 model = OrigamiTransformer(config)
 
-ckpt = torch.load(args.weights, map_location=device)
-if isinstance(ckpt, dict) and 'model' in ckpt:
-    model.load_state_dict(ckpt['model'], strict=False)
-    if 'segments' in ckpt:
-        restore_segments(model, ckpt['segments'])
-    else:
-        restore_folds(model, ckpt.get('bottom_loops', 1), ckpt.get('top_loops', 1))
+ckpt = torch.load(args.weights, map_location=device, weights_only=False)
+
+# ── Read saved config if present ────────────────────────────────────────
+if isinstance(ckpt, dict) and 'config' in ckpt:
+    saved_cfg = ckpt['config']
+    if hasattr(saved_cfg, 'n_layer'):
+        config.n_layer = saved_cfg.n_layer
+    if hasattr(saved_cfg, 'ffn_ratio'):
+        config.ffn_ratio = saved_cfg.ffn_ratio
+    if hasattr(saved_cfg, 'dropout'):
+        config.dropout = saved_cfg.dropout
+    # Rebuild model with correct architecture
+    model = OrigamiTransformer(config)
+
+# ── Detect checkpoint format ────────────────────────────────────────────
+if isinstance(ckpt, dict) and 'student' in ckpt:
+    sd = ckpt['student']
+    print("  Detected teacher-student checkpoint, loading student encoder...")
+    # If the student was a LatentOrigamiTransformer, wte has vocab_size+1 rows.
+    if 'transformer.wte.weight' in sd and sd['transformer.wte.weight'].shape[0] == config.vocab_size + 1:
+        print("  Slicing MASK token embedding (vocab+1 → vocab)")
+        sd['transformer.wte.weight'] = sd['transformer.wte.weight'][:config.vocab_size, :]
+    # Strip any predictor keys (from pure-latent runs)
+    sd = {k: v for k, v in sd.items() if not k.startswith('predictor')}
+    # Teacher-student checkpoints don't store segments separately;
+    # the model's segments are baked into the state dict via physical block keys.
+    # Default to [1 1 1 1 1] for n_layer=5 or derive from config.
+    model.segments = [(i, 1) for i in range(config.n_layer)]
+elif isinstance(ckpt, dict) and 'model' in ckpt:
+    sd = ckpt['model']
 else:
-    model.load_state_dict(ckpt, strict=False)
+    sd = ckpt
+
+# ── Auto-detect ffn_ratio from MLP weight shapes ──────────────────────────
+if args.ffn_ratio is None:
+    for k, v in sd.items():
+        if 'mlp.c_fc.weight' in k:
+            inferred_ffn = v.shape[0] // config.n_embd
+            if inferred_ffn != config.ffn_ratio:
+                print(f"  Auto-detected ffn_ratio={inferred_ffn} from checkpoint (config has {config.ffn_ratio})")
+                config.ffn_ratio = inferred_ffn
+                model = OrigamiTransformer(config)
+            break
+
+# ── Load weights ──────────────────────────────────────────────────────────
+model.load_state_dict(sd, strict=False)
+
+if isinstance(ckpt, dict) and 'segments' in ckpt:
+    restore_segments(model, ckpt['segments'])
+elif isinstance(ckpt, dict) and 'bottom_loops' in ckpt:
+    restore_folds(model, ckpt.get('bottom_loops', 1), ckpt.get('top_loops', 1))
 
 model.to(device)
 model.eval()

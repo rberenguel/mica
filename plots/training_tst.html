@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mica — TST + Folding Training</title>
+  <link rel="icon" type="image/png" href="../icon.png" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+  <style>
+    :root {
+      --bg: #0d0d0d;
+      --bg-raise: #1a1a1a;
+      --text: #d4c5a9;
+      --amber: #c8922a;
+      --amber-dim: #5c4a1e;
+      --muted: #7a6f5a;
+      --teal: #2aa0b4;
+      --border: #2a2a2a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Georgia', 'Times New Roman', serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    header {
+      padding: 2.5rem 2rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      max-width: 1500px;
+      margin: 0 auto;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.6rem;
+      font-weight: 400;
+      letter-spacing: 0.05em;
+      color: var(--amber);
+    }
+    .subtitle {
+      margin: 0.3rem 0 0;
+      font-size: 0.9rem;
+      color: var(--muted);
+      font-style: italic;
+    }
+    main {
+      max-width: 1500px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    .chart-wrap {
+      background: var(--bg-raise);
+      border: 1px solid var(--border);
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      position: relative;
+    }
+    .chart-wrap canvas { max-height: 420px; }
+    .chart-wrap.magnifier canvas { max-height: 220px; }
+    .chart-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--amber);
+      margin-bottom: 0.6rem;
+    }
+    .chart-hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.8rem;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .stat-card {
+      background: var(--bg-raise);
+      border: 1px solid var(--border);
+      padding: 1rem 1.2rem;
+    }
+    .stat-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      margin-bottom: 0.3rem;
+    }
+    .stat-value {
+      font-size: 1.3rem;
+      color: var(--amber);
+      font-variant-numeric: tabular-nums;
+    }
+    .legend {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 0.8rem;
+    }
+    .legend span { display: inline-block; margin-right: 1.2rem; }
+    .legend .dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 0.4rem;
+      vertical-align: middle;
+    }
+    .phase-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      margin-top: 1rem;
+    }
+    .phase-table th, .phase-table td {
+      padding: 0.5rem 0.8rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .phase-table th {
+      color: var(--amber);
+      font-weight: 400;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.75rem;
+    }
+    .phase-table td { color: var(--text); }
+    .phase-table .folded { color: var(--amber); }
+    .phase-table .unfolded { color: var(--teal); }
+    .phase-table .loss-val { font-variant-numeric: tabular-nums; }
+    .note {
+      font-size: 0.85rem;
+      color: var(--muted);
+      border-left: 2px solid var(--amber-dim);
+      padding-left: 1rem;
+      margin-top: 1.5rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Mica — Token Superposition &amp; Folding</h1>
+    <p class="subtitle">3-phase: mixed superposition → syntax folding → noir fine-tune</p>
+  </header>
+
+  <main>
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-label">Best val loss</div>
+        <div class="stat-value" id="best-val">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Final val loss</div>
+        <div class="stat-value" id="final-val">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total steps</div>
+        <div class="stat-value" id="total-steps">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Phases</div>
+        <div class="stat-value" id="phases-count">—</div>
+      </div>
+    </div>
+
+    <div class="chart-wrap">
+      <div class="chart-label">Full training run</div>
+      <canvas id="lossChart"></canvas>
+      <div class="legend">
+        <span><span class="dot" style="background:#c8922a"></span>Train loss</span>
+        <span><span class="dot" style="background:#2aa0b4"></span>Val loss</span>
+        <span style="margin-left:1rem">Vertical lines = phase boundaries (fold/unfold transitions)</span>
+      </div>
+    </div>
+
+    <div class="chart-wrap magnifier">
+      <div class="chart-label">Magnifier — hover the chart above</div>
+      <div class="chart-hint" id="magnifier-hint">Move your mouse over the full-run chart to see a zoomed ±2000-step window. Watch how val loss (teal) stays above train loss (amber) and each phase ends lower than the last.</div>
+      <canvas id="magnifierChart"></canvas>
+    </div>
+
+    <h2 style="font-size:1.1rem;font-weight:400;color:var(--amber);letter-spacing:0.05em;margin-top:2rem">Curriculum</h2>
+    <table class="phase-table">
+      <thead>
+        <tr><th>Phase</th><th>Steps</th><th>Layout</th><th>End train</th><th>End val</th><th>Description</th></tr>
+      </thead>
+      <tbody id="phase-body"></tbody>
+    </table>
+
+    <div class="note">
+      <strong>Phase 1 (Superposition):</strong> Output-only MCE loss with decaying bag sizes
+      (16→8→4→2) on a 10:1 Gutenberg:Noir mix. Learns coarse semantic space without burning data.
+      <br><br>
+      <strong>Phase 2 (Folding):</strong> Standard CE on pure Gutenberg with origami layer folding
+      (*2 *2 1) to force syntax regularisation, followed by an unfold cooldown.
+      <br><br>
+      <strong>Phase 3 (Noir):</strong> WSD schedule on 100% Noir with optional initial blend.
+      Model fully unfolded for maximum stylistic capacity.
+    </div>
+  </main>
+
+  <script>
+    // ── Parse CSV ───────────────────────────────────────────────────────────
+    async function loadCSV(url) {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error('Failed to load ' + url);
+      const text = await resp.text();
+      return text.trim().split('\n').map(line => line.split(','));
+    }
+
+    function detectFormat(rows) {
+      for (const row of rows) {
+        if (row.length > 1) return row.length;
+      }
+      return 6;
+    }
+
+    function parseRows(rows) {
+      const cols = detectFormat(rows);
+      const is8Col = cols === 8;
+
+      const steps = [], rawSteps = [], train = [], val = [], lrs = [];
+      const phases = [];
+      let bestVal = Infinity, bestStep = 0;
+      let currentPhase = null;
+      let stepOffset = 0;
+      let lastRawStep = -1;
+
+      for (let idx = 0; idx < rows.length; idx++) {
+        const row = rows[idx];
+        if (row.length < 6) continue;
+
+        const rawStep = parseInt(row[0]);
+        const phaseNum = parseInt(row[1]);
+        const layout = is8Col ? row[3] : row[2];
+        const t = parseFloat(is8Col ? row[5] : row[3]);
+        const v = parseFloat(is8Col ? row[6] : row[4]);
+        const lr = parseFloat(is8Col ? row[7] : row[5]);
+
+        if (isNaN(rawStep) || isNaN(t) || isNaN(v)) continue;
+
+        // Detect step reset (new training run appended to old log)
+        let didReset = false;
+        if (rawStep < lastRawStep) {
+          stepOffset = lastRawStep + 100;
+          didReset = true;
+        }
+        lastRawStep = rawStep;
+        const step = rawStep + stepOffset;
+
+        const dataIdx = steps.length;
+        steps.push(step);
+        rawSteps.push(rawStep);
+        train.push(t);
+        val.push(v);
+        lrs.push(lr);
+
+        if (v < bestVal) { bestVal = v; bestStep = step; }
+
+        // Start a new phase group when either the phase number changes
+        // or a step reset occurs (new training run).
+        if (currentPhase === null || currentPhase.num !== phaseNum || didReset) {
+          if (currentPhase !== null) phases.push(currentPhase);
+          currentPhase = {
+            num: phaseNum,
+            label: String.fromCharCode(65 + phases.length),
+            startIdx: dataIdx,
+            endIdx: dataIdx,
+            startStep: step,
+            endStep: step,
+            layout: layout,
+          };
+        } else {
+          currentPhase.endIdx = dataIdx;
+          currentPhase.endStep = step;
+          currentPhase.layout = layout;
+        }
+      }
+      if (currentPhase !== null) phases.push(currentPhase);
+
+      return { steps, rawSteps, train, val, lrs, phases, bestVal, bestStep };
+    }
+
+    // ── Build charts ────────────────────────────────────────────────────────
+    async function init() {
+      const rows = await loadCSV('../logs/small/train_log_tst_folding_v2.csv');
+      const data = parseRows(rows);
+
+      // Update stats
+      document.getElementById('best-val').textContent = data.bestVal.toFixed(4);
+      document.getElementById('final-val').textContent = data.val[data.val.length - 1].toFixed(4);
+      document.getElementById('total-steps').textContent = data.steps[data.steps.length - 1].toLocaleString();
+      document.getElementById('phases-count').textContent = data.phases.length;
+
+      // Build phase table (end-of-phase losses via exact index)
+      const tbody = document.getElementById('phase-body');
+      for (const p of data.phases) {
+        const endTrain = data.train[p.endIdx];
+        const endVal   = data.val[p.endIdx];
+        const folded = p.layout.includes('*');
+        const desc = folded
+          ? `${p.layout.match(/\*/g).length} folded layer(s), rest independent`
+          : 'All layers independent';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong>${p.label}</strong></td>
+          <td>${p.startStep.toLocaleString()}–${p.endStep.toLocaleString()}</td>
+          <td class="${folded ? 'folded' : 'unfolded'}">${p.layout}</td>
+          <td class="loss-val">${endTrain !== null ? endTrain.toFixed(4) : '—'}</td>
+          <td class="loss-val">${endVal !== null ? endVal.toFixed(4) : '—'}</td>
+          <td>${desc}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      // Annotations for phase boundaries
+      const annotations = {};
+      for (let i = 1; i < data.phases.length; i++) {
+        const p = data.phases[i];
+        annotations[`phase${i}`] = {
+          type: 'line',
+          xMin: p.startStep,
+          xMax: p.startStep,
+          borderColor: '#5c4a1e',
+          borderWidth: 1,
+          borderDash: [4, 4],
+          label: {
+            display: true,
+            content: p.label,
+            position: 'start',
+            color: '#7a6f5a',
+            font: { size: 10, family: 'Georgia' },
+            yAdjust: -8,
+          }
+        };
+      }
+
+      // ── Main chart ────────────────────────────────────────────────────────
+      const mainCtx = document.getElementById('lossChart').getContext('2d');
+      const mainChart = new Chart(mainCtx, {
+        type: 'line',
+        data: {
+          labels: data.steps,
+          datasets: [
+            {
+              label: 'Train loss',
+              data: data.train,
+              borderColor: '#c8922a',
+              backgroundColor: 'rgba(200,146,42,0.08)',
+              borderWidth: 1.2,
+              pointRadius: 0,
+              tension: 0.2,
+              fill: true,
+            },
+            {
+              label: 'Val loss',
+              data: data.val,
+              borderColor: '#2aa0b4',
+              backgroundColor: 'rgba(42,160,180,0.06)',
+              borderWidth: 1.5,
+              pointRadius: 0,
+              tension: 0.2,
+              fill: true,
+            },
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            annotation: { annotations },
+            tooltip: {
+              backgroundColor: '#1a1a1a',
+              titleColor: '#c8922a',
+              bodyColor: '#d4c5a9',
+              borderColor: '#2a2a2a',
+              borderWidth: 1,
+              callbacks: {
+                title: (items) => `Step ${data.rawSteps[items[0].dataIndex].toLocaleString()}`,
+                label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(4)}`,
+              }
+            }
+          },
+          scales: {
+            x: {
+              type: 'linear',
+              title: { display: true, text: 'Step', color: '#7a6f5a', font: { size: 11 } },
+              grid: { color: '#1a1a1a' },
+              ticks: { color: '#7a6f5a', maxTicksLimit: 10 },
+            },
+            y: {
+              title: { display: true, text: 'Cross-entropy loss', color: '#7a6f5a', font: { size: 11 } },
+              grid: { color: '#1a2a2a' },
+              ticks: { color: '#7a6f5a' },
+              min: 2.5,
+              max: 10,
+            }
+          }
+        }
+      });
+
+      // ── Magnifier chart ───────────────────────────────────────────────────
+      const magCtx = document.getElementById('magnifierChart').getContext('2d');
+      const magChart = new Chart(magCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'Train loss',
+              data: [],
+              borderColor: '#c8922a',
+              backgroundColor: 'rgba(200,146,42,0.1)',
+              borderWidth: 2,
+              pointRadius: 1,
+              tension: 0.2,
+              fill: true,
+            },
+            {
+              label: 'Val loss',
+              data: data.val,
+              borderColor: '#2aa0b4',
+              backgroundColor: 'rgba(42,160,180,0.08)',
+              borderWidth: 2,
+              pointRadius: 1,
+              tension: 0.2,
+              fill: true,
+            },
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#1a1a1a',
+              titleColor: '#c8922a',
+              bodyColor: '#d4c5a9',
+              borderColor: '#2a2a2a',
+              borderWidth: 1,
+              callbacks: {
+                title: (items) => `Step ${items[0].label.toLocaleString()}`,
+                label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(4)}`,
+              }
+            }
+          },
+          scales: {
+            x: {
+              type: 'linear',
+              title: { display: true, text: 'Step', color: '#7a6f5a', font: { size: 11 } },
+              grid: { color: '#1a1a1a' },
+              ticks: { color: '#7a6f5a', maxTicksLimit: 6 },
+            },
+            y: {
+              title: { display: true, text: 'Loss', color: '#7a6f5a', font: { size: 11 } },
+              grid: { color: '#1a1a1a' },
+              ticks: { color: '#7a6f5a' },
+              // No min/max — auto-scales to show separation clearly
+            }
+          }
+        }
+      });
+
+      // ── Hover-to-zoom logic ───────────────────────────────────────────────
+      // Snap to the interior of a single phase, skipping the first 500 steps
+      // where the transition spike lives. Never cross a phase boundary.
+      const SKIP_STEPS = 500;
+      const ZOOM_WIDTH = 2000;
+
+      function getPhaseAtStep(step) {
+        for (const p of data.phases) {
+          if (step >= p.startStep && step <= p.endStep) return p;
+        }
+        return data.phases[data.phases.length - 1];
+      }
+
+      function updateMagnifier(step) {
+        const phase = getPhaseAtStep(step);
+        // Start after the spike, or at the phase start if very short
+        const zoomStart = Math.max(phase.startStep + SKIP_STEPS, phase.startStep);
+        // Show up to ZOOM_WIDTH steps from zoomStart, capped at phase end
+        const zoomEnd = Math.min(zoomStart + ZOOM_WIDTH, phase.endStep);
+
+        let i0 = data.steps.findIndex(s => s >= zoomStart);
+        let i1 = data.steps.findIndex(s => s >= zoomEnd);
+        if (i0 < 0) i0 = 0;
+        if (i1 < 0) i1 = data.steps.length - 1;
+        if (i1 <= i0) i1 = Math.min(i0 + 1, data.steps.length - 1);
+
+        const zoomSteps = data.steps.slice(i0, i1 + 1);
+        const zoomRawSteps = data.rawSteps.slice(i0, i1 + 1);
+        const zoomTrain = data.train.slice(i0, i1 + 1);
+        const zoomVal   = data.val.slice(i0, i1 + 1);
+
+        magChart.data.labels = zoomRawSteps;
+        magChart.data.datasets[0].data = zoomTrain;
+        magChart.data.datasets[1].data = zoomVal;
+
+        // Tight y-axis: frame only the settled data (skip first 2 points in
+        // case there is still some residual spike at the very start)
+        const settleFrom = Math.min(2, zoomTrain.length - 1);
+        const settledTrain = zoomTrain.slice(settleFrom);
+        const settledVal   = zoomVal.slice(settleFrom);
+        const dataMin = Math.min(...settledTrain, ...settledVal);
+        const dataMax = Math.max(...settledTrain, ...settledVal);
+        const padding = (dataMax - dataMin) * 0.12 + 0.002;
+        magChart.options.scales.y.min = Math.max(0, dataMin - padding);
+        magChart.options.scales.y.max = dataMax + padding;
+
+        // Update the hint text
+        const hint = document.getElementById('magnifier-hint');
+        if (hint) {
+          const t = zoomTrain[zoomTrain.length - 1];
+          const v = zoomVal[zoomVal.length - 1];
+          const gap = v - t;
+          const rawStart = zoomRawSteps[0];
+          const rawEnd   = zoomRawSteps[zoomRawSteps.length - 1];
+          hint.textContent = `Phase ${phase.label}, steps ${rawStart.toLocaleString()}–${rawEnd.toLocaleString()}. Train: ${t.toFixed(4)}, Val: ${v.toFixed(4)}, gap: ${gap.toFixed(4)}`;
+        }
+
+        magChart.update('none');
+      }
+
+      // Listen for hover events on the main chart canvas
+      const canvas = mainChart.canvas;
+      canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        // Convert pixel X to data value
+        const scale = mainChart.scales.x;
+        const step = scale.getValueForPixel(x);
+        if (step !== null && step >= 0) {
+          updateMagnifier(Math.round(step));
+        }
+      });
+
+      // Initial zoom at the end (best result)
+      updateMagnifier(data.steps[data.steps.length - 1] - 1500);
+    }
+
+    init().catch(err => {
+      console.error(err);
+      document.querySelector('main').innerHTML += `<p style="color:#c8922a">Error loading data: ${err.message}</p>`;
+    });
+  </script>
+</body>
+</html>
