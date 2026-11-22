@@ -71,8 +71,20 @@
         const text = await res.text();
         const lines = text.trim().split('\n').filter(l => l.length > 0);
         if (lines.length === 0) return [];
-        // skip accidental header row
+        const firstCols = lines[0].split(',').map(s => s.trim());
+        const isLoopedHeader = firstCols.includes('train_ce') && firstCols.includes('val_ce');
         const rows = lines.filter(l => /^\d/.test(l)).map(l => l.split(','));
+        if (isLoopedHeader) {
+          const idx = name => firstCols.indexOf(name);
+          return rows.map(r => ({
+            step:   +r[idx('step')],
+            phase:  r[idx('stage')],
+            layout: r[idx('layout')],
+            train:  +r[idx('train_ce')],
+            val:    +r[idx('val_ce')],
+            lr:     +r[idx('lr')]
+          }));
+        }
         return rows.map(r => ({
           step:     +r[0],
           phase:    +r[1],
@@ -94,10 +106,13 @@
 
       // phase boundaries as vertical lines
       const boundaries = [];
-      let lastPhase = -1;
+      let lastPhase = null;
       for (const d of data) {
         if (d.phase !== lastPhase) {
-          boundaries.push({ x: d.step, label: `P${String.fromCharCode(65+d.phase)} ${d.layout}` });
+          const pLabel = typeof d.phase === 'number'
+            ? `P${String.fromCharCode(65 + d.phase)} ${d.layout}`
+            : `${d.phase} (${d.layout})`;
+          boundaries.push({ x: d.step, label: pLabel });
           lastPhase = d.phase;
         }
       }
