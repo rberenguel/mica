@@ -51,6 +51,17 @@
     <canvas id="lossChart" height="400"></canvas>
   </div>
 
+  <div id="rl-section" style="display:none;">
+    <div class="legend">
+      <span><span class="dot" style="background:#5d9"></span> Critic acc (%)</span>
+      <span><span class="dot" style="background:#fb5"></span> RL reward</span>
+      <span><span class="dot" style="background:#c8f"></span> Trust-region KL</span>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="rlChart" height="240"></canvas>
+    </div>
+  </div>
+
   <script>
     const urlParams = new URLSearchParams(window.location.search);
     const logFile   = urlParams.get('log') || 'train_log.csv';
@@ -58,6 +69,7 @@
     const REFRESH_MS = 30000;
 
     let chart;
+    let rlChart;
 
     async function loadData() {
       try {
@@ -76,13 +88,20 @@
         const rows = lines.filter(l => /^\d/.test(l)).map(l => l.split(','));
         if (isLoopedHeader) {
           const idx = name => firstCols.indexOf(name);
+          const optNum = (r, name) => {
+            const i = idx(name);
+            return (i >= 0 && r[i] !== undefined && r[i].trim() !== '') ? +r[i] : null;
+          };
           return rows.map(r => ({
-            step:   +r[idx('step')],
-            phase:  r[idx('stage')],
-            layout: r[idx('layout')],
-            train:  +r[idx('train_ce')],
-            val:    +r[idx('val_ce')],
-            lr:     +r[idx('lr')]
+            step:       +r[idx('step')],
+            phase:      r[idx('stage')],
+            layout:     r[idx('layout')],
+            train:      +r[idx('train_ce')],
+            val:        +r[idx('val_ce')],
+            lr:         +r[idx('lr')],
+            critic_acc: optNum(r, 'critic_acc'),
+            reward:     optNum(r, 'reward'),
+            kl:         optNum(r, 'kl')
           }));
         }
         return rows.map(r => ({
@@ -196,10 +215,91 @@
       });
 
       const latest = data[data.length - 1];
-      document.getElementById('status').textContent =
-        `Last eval: step ${latest.step}  |  ` +
+      let statusText =
+        `Last eval: step ${latest.step} (${latest.phase})  |  ` +
         `train ${latest.train.toFixed(4)}  val ${latest.val.toFixed(4)}  |  ` +
-        `layout ${latest.layout}  |  next refresh in ${REFRESH_MS/1000}s`;
+        `layout ${latest.layout}`;
+      if (latest.critic_acc !== null && latest.critic_acc !== undefined) {
+        statusText += `  |  critic ${(latest.critic_acc * 100).toFixed(1)}%  reward ${latest.reward >= 0 ? '+' : ''}${latest.reward.toFixed(3)}  kl ${latest.kl.toFixed(4)}`;
+      }
+      statusText += `  |  next refresh in ${REFRESH_MS/1000}s`;
+      document.getElementById('status').textContent = statusText;
+
+      // Optional RL / Co-evolving Critic panel
+      const hasRL = data.some(d => d.critic_acc !== null && d.critic_acc !== undefined);
+      const rlSection = document.getElementById('rl-section');
+      rlSection.style.display = hasRL ? 'block' : 'none';
+      if (hasRL) {
+        const rlCtx = document.getElementById('rlChart').getContext('2d');
+        if (rlChart) rlChart.destroy();
+        rlChart = new Chart(rlCtx, {
+          type: 'line',
+          data: {
+            labels: steps,
+            datasets: [
+              {
+                label: 'Critic acc (%)',
+                data: data.map(d => d.critic_acc !== null ? +(d.critic_acc * 100).toFixed(1) : null),
+                borderColor: '#5d9',
+                backgroundColor: '#5d9',
+                yAxisID: 'yAcc',
+                pointRadius: 1.5,
+                tension: 0.2,
+                spanGaps: false
+              },
+              {
+                label: 'RL reward',
+                data: data.map(d => d.reward),
+                borderColor: '#fb5',
+                backgroundColor: '#fb5',
+                yAxisID: 'yRL',
+                pointRadius: 1.5,
+                tension: 0.2,
+                spanGaps: false
+              },
+              {
+                label: 'KL',
+                data: data.map(d => d.kl),
+                borderColor: '#c8f',
+                backgroundColor: '#c8f',
+                yAxisID: 'yRL',
+                pointRadius: 1.5,
+                borderDash: [3, 3],
+                tension: 0.2,
+                spanGaps: false
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false } },
+            scales: {
+              x: {
+                title: { display: true, text: 'Step', color: '#888' },
+                ticks: { color: '#888' },
+                grid: { color: '#333' }
+              },
+              yAcc: {
+                type: 'linear',
+                position: 'left',
+                min: 0,
+                max: 100,
+                title: { display: true, text: 'Critic acc (%)', color: '#5d9' },
+                ticks: { color: '#5d9' },
+                grid: { color: '#333' }
+              },
+              yRL: {
+                type: 'linear',
+                position: 'right',
+                title: { display: true, text: 'Reward / KL', color: '#fb5' },
+                ticks: { color: '#fb5' },
+                grid: { drawOnChartArea: false }
+              }
+            }
+          }
+        });
+      }
     }
 
     async function refresh() {

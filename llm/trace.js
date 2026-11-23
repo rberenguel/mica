@@ -12,8 +12,8 @@ let tokenizer  = null;
 let traceData  = null;
 let activeLayer = 0;
 let activePos  = -1;
-let currentModelPath = './mica_trace.onnx';
-let currentModelLabel = 'Mica (5.4M)';
+let currentModelPath = './mica_looped_trace.onnx';
+let currentModelLabel = 'Mica Looped + RL (3.7M)';
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 

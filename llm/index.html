@@ -34,6 +34,13 @@
         representations with a slowly-updating teacher network. This regulariser encourages
         richer, more stable contextual embeddings without increasing parameters.
       </p>
+      <p>
+        The newest variant, <strong>Mica Looped (3.7M)</strong>, is a wider (d=256) Prelude →
+        Looped Core (×4) → Coda architecture with fused multi-resolution attention, RMSNorm,
+        and SwiGLU. It was kickstarted unfolded, permanently folded into a single looped core
+        preserving per-loop norms, and trained with a co-evolving from-scratch critic and
+        interleaved trust-region RL throughout both Gutenberg and Noir training.
+      </p>
       <p class="trace-link">
         <a href="trace.html">→ Open the token trace viewer</a> to visualise attention heads,
         residual streams, and per-layer predictions as the model generates each token.
@@ -42,7 +49,8 @@
     <div>
       <label>Model</label>
       <div class="model-select" style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
-        <button class="model-btn active" data-model="mica_trace.onnx" data-label="Mica (5.4M)">Mica (5.4M)</button>
+        <button class="model-btn active" data-model="mica_looped_trace.onnx" data-label="Mica Looped + RL (3.7M)">Mica Looped + RL (3.7M)</button>
+        <button class="model-btn" data-model="mica_trace.onnx" data-label="Mica (5.4M)">Mica (5.4M)</button>
         <button class="model-btn" data-model="mica_small_trace.onnx" data-label="Cromulent Noir (2.5M)">Cromulent Noir (2.5M)</button>
         <button class="model-btn" data-model="mica_small_teacher_student_trace.onnx" data-label="Cromulent Noir — Student (2.5M)">Cromulent Noir — Student (2.5M)</button>
       </div>
@@ -73,8 +81,8 @@
     <div class="controls">
       <div class="slider-group">
         <span>Temp</span>
-        <input id="temperature" type="range" min="0.5" max="1.4" step="0.05" value="0.65" />
-        <span id="temperature-display">0.65</span>
+        <input id="temperature" type="range" min="0.5" max="1.4" step="0.02" value="0.72" />
+        <span id="temperature-display">0.72</span>
       </div>
 
       <div class="slider-group">

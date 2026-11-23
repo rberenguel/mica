@@ -2,23 +2,32 @@ import * as ort from 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/o
 import { loadTokenizer } from './tokenizer.js';
 
 const BLOCK_SIZE = 512;
-const DEFAULT_MODEL = './mica_trace.onnx';
+const DEFAULT_MODEL = './mica_looped_trace.onnx';
+const TOP_K = 40;
 
 // ── Sampling ──────────────────────────────────────────────────────────────────
 
-function sampleLogits(logits, temperature) {
+function sampleLogits(logits, temperature, topK = TOP_K) {
   const n = logits.length;
   const scaled = new Float32Array(n);
 
+  // Top-k truncation to suppress long-tail OCR / rare-token noise
+  let cutoff = -Infinity;
+  if (topK > 0 && topK < n) {
+    const sorted = Float32Array.from(logits).sort((a, b) => b - a);
+    cutoff = sorted[topK - 1];
+  }
+
   let max = -Infinity;
   for (let i = 0; i < n; i++) {
-    scaled[i] = logits[i] / temperature;
-    if (scaled[i] > max) max = scaled[i];
+    const v = logits[i] >= cutoff ? logits[i] / temperature : -Infinity;
+    scaled[i] = v;
+    if (v > max) max = v;
   }
 
   let sum = 0;
   for (let i = 0; i < n; i++) {
-    scaled[i] = Math.exp(scaled[i] - max);
+    scaled[i] = scaled[i] === -Infinity ? 0 : Math.exp(scaled[i] - max);
     sum += scaled[i];
   }
 
